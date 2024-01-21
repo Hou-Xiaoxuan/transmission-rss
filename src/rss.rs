@@ -3,7 +3,7 @@ use crate::notification::notify_all;
 use log::info;
 use rss::{Channel, Item};
 use std::error::Error;
-use transmission_rpc::types::{BasicAuth, RpcResponse, TorrentAddArgs, TorrentAdded};
+use transmission_rpc::types::{BasicAuth, RpcResponse, TorrentAddArgs, TorrentAddedOrDuplicate};
 use transmission_rpc::TransClient;
 
 pub async fn process_feed(item: RssList, cfg: Config) -> Result<i32, Box<dyn Error + Send + Sync>> {
@@ -22,7 +22,7 @@ pub async fn process_feed(item: RssList, cfg: Config) -> Result<i32, Box<dyn Err
         user: cfg.transmission.username.clone(),
         password: cfg.transmission.password.clone(),
     };
-    let client = TransClient::with_auth(&cfg.transmission.url, basic_auth);
+    let mut client = TransClient::with_auth(&cfg.transmission.url, basic_auth);
 
     // Filters the results
     let results: Vec<&Item> = channel
@@ -76,7 +76,11 @@ pub async fn process_feed(item: RssList, cfg: Config) -> Result<i32, Box<dyn Err
             download_dir: Some(item.download_dir.clone()),
             ..TorrentAddArgs::default()
         };
-        let res: RpcResponse<TorrentAdded> = client.torrent_add(add).await?;
+        // debug, ignore dead code
+        print!("Adding {:?}...", add);
+        continue;
+        // end
+        let res: RpcResponse<TorrentAddedOrDuplicate> = client.torrent_add(add).await?;
         if res.is_ok() {
             // Update counter
             count += 1;
