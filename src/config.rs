@@ -64,6 +64,7 @@ pub struct RssList {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Notification {
     pub telegram: Option<TelegramNotification>,
+    pub feishu: Option<FeishuNotification>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -102,4 +103,38 @@ pub struct RawTelegramNotification {
 pub enum TelegramToken {
     Raw { bot_token: String },
     File { bot_token_file: String },
+}
+
+// feishu webhook notification
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(try_from = "RawFeishuNotification")]
+pub struct FeishuNotification {
+    pub webhook: String,
+}
+
+impl TryFrom<RawFeishuNotification> for FeishuNotification {
+    type Error = std::io::Error;
+
+    fn try_from(value: RawFeishuNotification) -> Result<Self, Self::Error> {
+        let webhook = match value.webhook {
+            FeishuWebhook::Raw { webhook } => webhook,
+            FeishuWebhook::File { webhook_file } => {
+                read_to_string(webhook_file)?.trim().to_string()
+            }
+        };
+        Ok(FeishuNotification { webhook })
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RawFeishuNotification {
+    #[serde(flatten)]
+    pub webhook: FeishuWebhook,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(untagged)]
+pub enum FeishuWebhook {
+    Raw { webhook: String },
+    File { webhook_file: String },
 }
