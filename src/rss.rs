@@ -1,6 +1,7 @@
 use crate::config::{Config, RssList};
 use crate::notification::notify_all;
 use log::info;
+use openssl::base64;
 use rss::{Channel, Item};
 use std::error::Error;
 use transmission_rpc::types::{BasicAuth, RpcResponse, TorrentAddArgs, TorrentAddedOrDuplicate};
@@ -70,9 +71,10 @@ pub async fn process_feed(item: RssList, cfg: Config) -> Result<i32, Box<dyn Err
     for result in results {
         let title = result.title().unwrap_or_default();
         let link = get_link(result);
+        let metainfo = get_metainfo(link).await?;
         // Add the torrent into transmission
         let add: TorrentAddArgs = TorrentAddArgs {
-            filename: Some(link.to_string()),
+            metainfo: Some(metainfo),
             download_dir: Some(item.download_dir.clone()),
             ..TorrentAddArgs::default()
         };
@@ -103,5 +105,30 @@ fn get_link(item: &Item) -> &str {
     match item.enclosure() {
         Some(enclosure) if enclosure.mime_type() == "application/x-bittorrent" => enclosure.url(),
         _ => item.link().unwrap_or_default(),
+    }
+}
+
+/**Get base64 of content of .torrent file url, incase some url can't be processed bt transmission */
+async fn get_metainfo(url: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let res = reqwest::get(url).await?;
+    // base 64
+    if res.error_for_status_ref().is_err() {
+        // return Err(fmt"Failed to fetch the torrent file : {:?}".into());
+        return Err(format!("Failed to fetch the torrent file : {:?}", url).into());
+    }
+    let metainfo = base64::encode_block(res.bytes().await?.as_ref());
+    Ok(metainfo)
+}
+
+#[cfg(test)]
+mod test {
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_get_metainfo() {
+        let url = "https://bangumi.moe/download/torrent/65cdb20e0050540007eb7b3a/[北宇治字幕组] 葬送的芙莉莲 _ Sousou no Frieren [22][WebRip][1080p][HEVC_AAC][简日内嵌][招募时轴].torrent";
+        let metainfo = get_metainfo(url).await;
+        metainfo.unwrap();
     }
 }
