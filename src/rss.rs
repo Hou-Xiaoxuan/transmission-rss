@@ -22,7 +22,7 @@ pub async fn process_feed(item: RssList, cfg: Config) -> Result<i32, Box<dyn Err
         user: cfg.transmission.username.clone(),
         password: cfg.transmission.password.clone(),
     };
-    let mut client = TransClient::with_auth(&cfg.transmission.url, basic_auth);
+    let mut client = TransClient::with_auth(cfg.transmission.url.parse()?, basic_auth);
 
     // Filters the results
     let results: Vec<&Item> = channel
@@ -76,10 +76,7 @@ pub async fn process_feed(item: RssList, cfg: Config) -> Result<i32, Box<dyn Err
             download_dir: Some(item.download_dir.clone()),
             ..TorrentAddArgs::default()
         };
-        // debug, ignore dead code
-        print!("Adding {:?}...", add);
-        continue;
-        // end
+        // TODO 筛选已经存在的种子
         let res: RpcResponse<TorrentAddedOrDuplicate> = client.torrent_add(add).await?;
         if res.is_ok() {
             // Update counter

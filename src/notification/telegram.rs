@@ -1,5 +1,5 @@
-use serde::{Serialize};
-use std::{error::Error as StdError};
+use serde::Serialize;
+use std::error::Error as StdError;
 
 use reqwest::StatusCode;
 
@@ -27,13 +27,21 @@ impl Telegram {
     }
 
     pub async fn send(&self, message: String) -> Result<(), Box<dyn StdError>> {
-        let tel_msg = Message{chat_id: self.chat_id.to_owned(), text: message.to_owned()};
+        let tel_msg = Message {
+            chat_id: self.chat_id.to_owned(),
+            text: message.to_owned(),
+        };
 
         let client = reqwest::Client::new();
-        let res = client.post(format!("{}/bot{}/sendMessage", self.base_url, self.bot_token))
+        let res = client
+            .post(format!(
+                "{}/bot{}/sendMessage",
+                self.base_url, self.bot_token
+            ))
             .json(&tel_msg)
-            .send().await?;
-        
+            .send()
+            .await?;
+
         if res.status() != StatusCode::OK {
             if let Ok(val) = res.text().await {
                 dbg!(&val);
@@ -43,7 +51,6 @@ impl Telegram {
         }
 
         Ok(())
-
     }
 }
 
@@ -56,8 +63,7 @@ mod tests {
     fn test_send() {
         let server = MockServer::start();
         let mock = server.mock(|when, then| {
-            when.method(POST)
-                .path("/bot123token123/sendMessage");
+            when.method(POST).path("/bot123token123/sendMessage");
             then.status(200);
         });
         let notifier = Telegram::new("123token123".into(), 123, server.url(""));
