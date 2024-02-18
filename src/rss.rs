@@ -1,9 +1,12 @@
 use crate::config::{Config, RssList};
 use crate::notification::notify_all;
+use futures::lock::Mutex;
 use lava_torrent::torrent::v1::Torrent;
 use openssl::base64;
 use rss::{Channel, Item};
+use sled::Db;
 use std::error::Error;
+use std::sync::Arc;
 use transmission_rpc::types::{BasicAuth, RpcResponse, TorrentAddArgs, TorrentAddedOrDuplicate};
 use transmission_rpc::TransClient;
 struct TorrentItem {
@@ -38,12 +41,12 @@ impl TorrentItem {
     }
 }
 
-pub async fn process_feed(item: RssList, cfg: Config) -> Result<i32, Box<dyn Error + Send + Sync>> {
-    println!("----------------------------");
+pub async fn process_feed(
+    db: Arc<Db>,
+    item: RssList,
+    cfg: Config,
+) -> Result<i32, Box<dyn Error + Send + Sync>> {
     println!("==> Processing [{}]", item.title);
-
-    // Open the database
-    let db = sled::open(&cfg.persistence.path)?;
 
     // Fetch the url
     let content = reqwest::get(item.url).await?.bytes().await?;
@@ -92,7 +95,7 @@ pub async fn process_feed(item: RssList, cfg: Config) -> Result<i32, Box<dyn Err
 
     // Filters the results
 
-    let mut count = 0;
+    let count = Arc::new(Mutex::new(0));
     for result in results {
         // Add the torrent into transmission
         let add: TorrentAddArgs = TorrentAddArgs {
@@ -100,7 +103,6 @@ pub async fn process_feed(item: RssList, cfg: Config) -> Result<i32, Box<dyn Err
             download_dir: Some(item.download_dir.clone()),
             ..TorrentAddArgs::default()
         };
-        // TODO 筛选已经存在的种子
         let res: RpcResponse<TorrentAddedOrDuplicate> = client.torrent_add(add).await?;
         if !res.is_ok() {
             log::warn!("Failed to add torrent: {}", result.title);
@@ -108,24 +110,29 @@ pub async fn process_feed(item: RssList, cfg: Config) -> Result<i32, Box<dyn Err
         }
         match res.arguments {
             TorrentAddedOrDuplicate::TorrentAdded(torrent) => {
-                count += 1;
+                {
+                    let mut c = count.lock().await;
+                    *c += 1;
+                }
                 // send notification
                 notify_all(cfg.clone(), format!("Downloading: {}", result.title)).await;
 
                 // Save the hash on the database
-                //?! 未验证
                 db.insert(torrent.hash_string.unwrap(), b"").unwrap();
             }
             TorrentAddedOrDuplicate::TorrentDuplicate(torrent) => {
-                log::warn!("Torrent already exists: {}", torrent.hash_string.unwrap());
+                let hash = torrent.hash_string.unwrap();
+                log::warn!("Torrent already exists: {}", hash);
+                db.insert(hash, b"").unwrap();
             }
         }
     }
 
     // Persist changes on disk
     db.flush()?;
-
-    Ok(count)
+    let count = count.lock().await;
+    log::info!("[{:?}] {:?} new torrents added", item.title, *count);
+    Ok(*count)
 }
 
 fn get_link(item: &Item) -> &str {
@@ -135,7 +142,7 @@ fn get_link(item: &Item) -> &str {
     }
 }
 
-fn get_client(cfg: &Config) -> TransClient {
+pub fn get_client(cfg: &Config) -> TransClient {
     let basic_auth = BasicAuth {
         user: cfg.transmission.username.clone(),
         password: cfg.transmission.password.clone(),
