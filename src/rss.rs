@@ -1,6 +1,5 @@
 use crate::config::{Config, RssList};
 use crate::notification::notify_all;
-use futures::lock::Mutex;
 use lava_torrent::torrent::v1::Torrent;
 use openssl::base64;
 use rss::{Channel, Item};
