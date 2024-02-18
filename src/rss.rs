@@ -46,57 +46,77 @@ pub async fn process_feed(
     item: RssList,
     cfg: Config,
 ) -> Result<i32, Box<dyn Error + Send + Sync>> {
+    println!("----------------------------");
     println!("==> Processing [{}]", item.title);
 
     // Fetch the url
     let content = reqwest::get(item.url).await?.bytes().await?;
     let channel = Channel::read_from(&content[..])?;
 
+    let tasks = channel
+        .items
+        .into_iter()
+        .map(|it| {
+            let db_copy = db.clone();
+            let filters = item.filters.clone();
+            return async move {
+                // Check if item is already on db
+                let it = TorrentItem::new(
+                    get_link(&it).to_string(),
+                    it.title().unwrap_or_default().to_string(),
+                );
+                if let Err(err) = it {
+                    log::warn!("Failed to process item: {}", err);
+                    return None;
+                }
+                let it = it.unwrap();
+
+                // check if item is already on db
+                let db_found = match db_copy.get(it.torrent.clone().info_hash()) {
+                    Ok(val) => val,
+                    Err(_) => None,
+                };
+                if db_found.is_some() {
+                    return None;
+                }
+
+                // check filter, if no filter, default to true
+                let mut found = true;
+                if filters.len() != 0 {
+                    found = false;
+                    for filter in filters {
+                        if it.title.contains(&filter) {
+                            found = true;
+                        }
+                    }
+
+                    if !found {
+                        log::debug!("Skipping {} as it doesn't match any filter", it.title)
+                    }
+                }
+                return if found { Some(it) } else { None };
+            };
+        })
+        .collect::<Vec<_>>();
+
+    let results: Vec<Option<TorrentItem>> = futures::future::join_all(tasks).await;
+    log::info!(
+        "[{:?}] [{:?}] torrents processed",
+        item.title,
+        results.len()
+    );
+
     // Creates a new connection
     let mut client = get_client(&cfg);
 
-    let results = channel.items.into_iter().filter_map(|it| {
-        // Check if item is already on db
-        let it = TorrentItem::new(
-            get_link(&it).to_string(),
-            it.title().unwrap_or_default().to_string(),
-        );
-        if let Err(err) = it {
-            log::warn!("Failed to process item: {}", err);
-            return None;
-        }
-        let it = it.unwrap();
-        // * 使用hash进行替换
-        let db_found = match db.get(it.torrent.info_hash()) {
-            Ok(val) => val,
-            Err(_) => None,
-        };
+    let mut count = 0;
 
-        if db_found.is_none() {
-            // check filter, if no filter, default to true
-            let mut found = true;
-            if item.filters.len() != 0 {
-                found = false;
-                for filter in item.filters.clone() {
-                    if it.title.contains(&filter) {
-                        found = true;
-                    }
-                }
-
-                if !found {
-                    log::debug!("Skipping {} as it doesn't match any filter", it.title)
-                }
-            }
-            return if found { Some(it) } else { None };
-        }
-
-        None
-    });
-
-    // Filters the results
-
-    let count = Arc::new(Mutex::new(0));
     for result in results {
+        if result.is_none() {
+            continue;
+        }
+        let result = result.unwrap();
+
         // Add the torrent into transmission
         let add: TorrentAddArgs = TorrentAddArgs {
             filename: Some(result.torrent.magnet_link().unwrap()),
@@ -108,15 +128,13 @@ pub async fn process_feed(
             log::warn!("Failed to add torrent: {}", result.title);
             continue;
         }
+
+        // check if torrent was added
         match res.arguments {
             TorrentAddedOrDuplicate::TorrentAdded(torrent) => {
-                {
-                    let mut c = count.lock().await;
-                    *c += 1;
-                }
+                count += 1;
                 // send notification
                 notify_all(cfg.clone(), format!("Downloading: {}", result.title)).await;
-
                 // Save the hash on the database
                 db.insert(torrent.hash_string.unwrap(), b"").unwrap();
             }
@@ -130,9 +148,8 @@ pub async fn process_feed(
 
     // Persist changes on disk
     db.flush()?;
-    let count = count.lock().await;
-    log::info!("[{:?}] {:?} new torrents added", item.title, *count);
-    Ok(*count)
+    log::info!("[{:?}] [{:?}] torrents added", item.title, count);
+    Ok(count)
 }
 
 fn get_link(item: &Item) -> &str {
