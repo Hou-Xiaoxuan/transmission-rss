@@ -14,7 +14,11 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init();
+    let _ = env_logger::builder()
+        .filter_level(log::LevelFilter::Info)
+        .is_test(true)
+        .try_init();
+
     // Read env
     let args = Args::parse();
 
@@ -44,4 +48,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn test_logger() {
+        let _ = env_logger::builder()
+            .filter_level(log::LevelFilter::Debug)
+            .is_test(true)
+            .try_init();
+        log::info!("info");
+        log::debug!("debug");
+        log::warn!("warn");
+        log::error!("error");
+        println!("over");
+    }
 }
