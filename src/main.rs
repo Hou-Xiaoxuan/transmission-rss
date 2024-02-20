@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let title = it.title.clone();
             let rt = process_feed(db.clone(), it, cfg.clone()).await;
             if let Err(err) = rt {
-                let msg = format!("Failed to process {}feed: {}", title, err);
+                let msg = format!("Failed to process {} feed: {}", title, err);
                 log::error!("{}", msg);
                 notify_all(cfg.clone(), msg).await;
             }

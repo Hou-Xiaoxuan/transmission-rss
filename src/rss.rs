@@ -51,6 +51,7 @@ async fn get_with_retry(
         if count > retry {
             return Err(format!("Failed to fetch the torrent file : {:?}", url).into());
         }
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
 }
 
@@ -136,7 +137,22 @@ pub async fn process_feed(
             download_dir: Some(item.download_dir.clone()),
             ..TorrentAddArgs::default()
         };
-        let res: RpcResponse<TorrentAddedOrDuplicate> = client.torrent_add(add).await?;
+        let res = {
+            let retry = 3;
+            let mut count = 0;
+            loop {
+                let res: RpcResponse<TorrentAddedOrDuplicate> =
+                    client.torrent_add(add.clone()).await?;
+                if res.is_ok() {
+                    break res;
+                }
+                count += 1;
+                if count > retry {
+                    return Err(format!("Failed to add torrent: {}", result.title).into());
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
+        };
         if !res.is_ok() {
             log::warn!("Failed to add torrent: {}", result.title);
             continue;
@@ -161,7 +177,7 @@ pub async fn process_feed(
 
     // Persist changes on disk
     db.flush()?;
-    log::info!("[{:?}] 【{:?}】 torrents added", item.title, count);
+    log::info!("[{:?}] add【{:?}】 torrents", item.title, count);
     Ok(count)
 }
 
