@@ -1,9 +1,7 @@
 use serde::Serialize;
 use std::error::Error as StdError;
-
+use super::Error;
 use reqwest::StatusCode;
-
-use super::notification::Error;
 
 pub struct FeiShu {
     webhook: String,

@@ -33,10 +33,24 @@ impl TorrentItem {
         res.into_reader().read_to_end(&mut buffer).unwrap();
 
         let torrent = Torrent::read_from_bytes(&buffer)?;
-        Ok(TorrentItem {
-            title,
-            torrent: torrent,
-        })
+        Ok(TorrentItem { title, torrent })
+    }
+}
+
+async fn get_with_retry(
+    url: &str,
+    retry: u32,
+) -> Result<reqwest::Response, Box<dyn Error + Send + Sync>> {
+    let mut count = 0;
+    loop {
+        let res = reqwest::get(url).await;
+        if res.is_ok() {
+            return Ok(res?);
+        }
+        count += 1;
+        if count > retry {
+            return Err(format!("Failed to fetch the torrent file : {:?}", url).into());
+        }
     }
 }
 
@@ -49,7 +63,7 @@ pub async fn process_feed(
     println!("==> Processing [{}]", item.title);
 
     // Fetch the url
-    let content = reqwest::get(item.url).await?.bytes().await?;
+    let content = get_with_retry(&item.url, 3).await?.bytes().await?;
     let channel = Channel::read_from(&content[..])?;
 
     let tasks = channel
@@ -81,7 +95,7 @@ pub async fn process_feed(
 
                 // check filter, if no filter, default to true
                 let mut found = true;
-                if filters.len() != 0 {
+                if !filters.is_empty() {
                     found = false;
                     for filter in filters {
                         if it.title.contains(&filter) {
@@ -93,17 +107,17 @@ pub async fn process_feed(
                         log::debug!("Skipping {} as it doesn't match any filter", it.title)
                     }
                 }
-                return if found { Some(it) } else { None };
+                if found {
+                    Some(it)
+                } else {
+                    None
+                }
             };
         })
         .collect::<Vec<_>>();
 
     let results: Vec<Option<TorrentItem>> = futures::future::join_all(tasks).await;
-    log::info!(
-        "[{:?}] [{:?}] torrents processed",
-        item.title,
-        results.len()
-    );
+    log::info!("[{:?}] [{:?}] torrents found", item.title, results.len());
 
     // Creates a new connection
     let mut client = get_client(&cfg);
@@ -147,7 +161,7 @@ pub async fn process_feed(
 
     // Persist changes on disk
     db.flush()?;
-    log::info!("[{:?}] [{:?}] torrents added", item.title, count);
+    log::info!("[{:?}] 【{:?}】 torrents added", item.title, count);
     Ok(count)
 }
 

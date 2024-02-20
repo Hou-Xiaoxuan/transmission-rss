@@ -55,7 +55,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .clone()
         .rss_list
         .into_iter()
-        .map(|it| process_feed(db.clone(), it, cfg.clone()))
+        .map(|it| async {
+            let title = it.title.clone();
+            let rt = process_feed(db.clone(), it, cfg.clone()).await;
+            if let Err(err) = rt {
+                log::warn!("Failed to process {}feed: {}", title, err);
+            }
+        })
         .collect();
 
     _ = futures::future::join_all(items).await;

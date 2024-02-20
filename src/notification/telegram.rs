@@ -3,7 +3,7 @@ use std::error::Error as StdError;
 
 use reqwest::StatusCode;
 
-use super::notification::Error;
+use super::Error;
 
 #[derive(Serialize)]
 struct Message {
