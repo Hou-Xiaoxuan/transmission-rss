@@ -4,6 +4,7 @@ use std::error::Error;
 use std::fs;
 use std::sync::Arc;
 use transmission_rss::config::Config;
+use transmission_rss::notification::notify_all;
 use transmission_rss::rss::{get_client, process_feed};
 
 /// Parse args
@@ -59,7 +60,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let title = it.title.clone();
             let rt = process_feed(db.clone(), it, cfg.clone()).await;
             if let Err(err) = rt {
-                log::warn!("Failed to process {}feed: {}", title, err);
+                let msg = format!("Failed to process {}feed: {}", title, err);
+                log::error!("{}", msg);
+                notify_all(cfg.clone(), msg).await;
             }
         })
         .collect();
