@@ -65,6 +65,7 @@ pub async fn process_feed(
 
     // Fetch the url
     let content = get_with_retry(&item.url, 3).await?.bytes().await?;
+    log::info!("[{:?}] feed fetched", item.title);
     let channel = Channel::read_from(&content[..])?;
 
     let tasks = channel
@@ -124,13 +125,12 @@ pub async fn process_feed(
     let mut client = get_client(&cfg);
 
     let mut count = 0;
-
     for result in results {
         if result.is_none() {
             continue;
         }
         let result = result.unwrap();
-
+        log::info!("Adding torrent: {}", result.title);
         // Add the torrent into transmission
         let add: TorrentAddArgs = TorrentAddArgs {
             filename: Some(result.torrent.magnet_link().unwrap()),
