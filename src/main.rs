@@ -17,19 +17,31 @@ struct Args {
 
 pub async fn init_db(cfg: &Config) -> Result<Arc<Db>, Box<dyn Error + Send + Sync>> {
     let db = sled::open(&cfg.persistence.path)?;
-    match db.was_recovered() {
-        true => {
-            log::info!("Database recovered");
-        }
-        false => {
-            let mut client = get_client(cfg);
-            let res = client.torrent_get(None, None).await?;
-            log::info!("init db with {:?} items", res.arguments.torrents.len());
-            for torrent in res.arguments.torrents {
-                db.insert(torrent.hash_string.unwrap(), b"").unwrap();
-            }
-        }
+    if db.was_recovered() {
+        log::info!("Database recovered");
     }
+
+    // fetch updated torrents
+    let mut client = get_client(cfg);
+    let res = client.torrent_get(None, None).await;
+    if res.is_err() {
+        return Err(format!(
+            "Failed to fetch torrents: {:?}, please check transmission server.",
+            res
+        )
+        .into());
+    }
+    let res = res.unwrap();
+    let mut update_count = 0;
+    for torrent in res.arguments.torrents {
+        let torrent_hash = torrent.hash_string.unwrap();
+        if db.get(&torrent_hash).is_ok() {
+            continue;
+        }
+        update_count += 1;
+        db.insert(&torrent_hash, b"").unwrap();
+    }
+    log::info!("update db with {:?} items", update_count);
     Ok(Arc::new(db))
 }
 
