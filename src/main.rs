@@ -35,8 +35,10 @@ pub async fn init_db(cfg: &Config) -> Result<Arc<Db>, Box<dyn Error + Send + Syn
     let mut update_count = 0;
     for torrent in res.arguments.torrents {
         let torrent_hash = torrent.hash_string.unwrap();
-        if db.get(&torrent_hash).is_ok() {
-            continue;
+        if let Ok(rt) = db.get(&torrent_hash) {
+            if rt.is_some() {
+                continue;
+            }
         }
         update_count += 1;
         db.insert(&torrent_hash, b"").unwrap();
