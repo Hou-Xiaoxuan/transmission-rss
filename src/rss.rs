@@ -13,10 +13,8 @@ struct TorrentItem {
     pub torrent: Torrent,
 }
 impl TorrentItem {
-    pub fn new(url: String, title: String) -> Result<TorrentItem, Box<dyn Error + Send + Sync>> {
-        //! can't be async here, because this function will be called in a filter
-        //! can't use block_on here, because it will block the tokio runtime, cause dead lock
-        let res = ureq::get(&url).call();
+    pub async fn new(url: String, title: String) -> Result<TorrentItem, Box<dyn Error + Send + Sync>> {
+        let res = get_with_retry(&url, 1).await;
         if res.is_err() {
             return Err(format!("Failed to fetch the torrent file : {:?}", res).into());
         }
@@ -29,10 +27,11 @@ impl TorrentItem {
             )
             .into());
         }
-        let mut buffer: Vec<u8> = Vec::new();
-        res.into_reader().read_to_end(&mut buffer).unwrap();
+        // let mut buffer: Vec<u8> = Vec::new();
+        // res.into_reader().read_to_end(&mut buffer).unwrap();
 
-        let torrent = Torrent::read_from_bytes(&buffer)?;
+        // let torrent = Torrent::read_from_bytes(&buffer)?;
+        let torrent = Torrent::read_from_bytes(&res.bytes().await?)?;
         Ok(TorrentItem { title, torrent })
     }
 }
@@ -79,7 +78,7 @@ pub async fn process_feed(
                 let it = TorrentItem::new(
                     get_link(&it).to_string(),
                     it.title().unwrap_or_default().to_string(),
-                );
+                ).await;
                 if let Err(err) = it {
                     log::warn!("Failed to process item: {}", err);
                     return None;
@@ -212,6 +211,8 @@ async fn get_metainfo(url: &str) -> Result<String, Box<dyn Error + Send + Sync>>
 #[cfg(test)]
 mod test {
 
+    use futures::TryFutureExt;
+
     use super::*;
 
     #[tokio::test]
@@ -231,15 +232,15 @@ mod test {
         }
     }
 
-    #[test]
-    fn test_torrent_new() {
+    #[tokio::test]
+    async fn test_torrent_new() {
         let url = "https://dl.dmhy.org/2022/08/17/d70db7716583224da1684de8fa324822461917aa.torrent";
-        let torrent = TorrentItem::new(url.to_string(), "test".to_string());
+        let torrent = TorrentItem::new(url.to_string(), "test".to_string()).await;
         torrent.unwrap();
     }
 
-    #[test]
-    fn test_info_hash() {
+    #[tokio::test]
+    async fn test_info_hash() {
         print!("test_info_hash");
         let file = std::fs::read_to_string("config.toml").unwrap();
         let cfg = toml::from_str::<Config>(&file).unwrap();
@@ -248,7 +249,7 @@ mod test {
             "https://dl.dmhy.org/2022/08/17/d70db7716583224da1684de8fa324822461917aa.torrent"
                 .to_string(),
             "test".to_string(),
-        )
+        ).await
         .unwrap();
 
         let add: TorrentAddArgs = TorrentAddArgs {
