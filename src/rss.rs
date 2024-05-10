@@ -13,7 +13,10 @@ struct TorrentItem {
     pub torrent: Torrent,
 }
 impl TorrentItem {
-    pub async fn new(url: String, title: String) -> Result<TorrentItem, Box<dyn Error + Send + Sync>> {
+    pub async fn new(
+        url: String,
+        title: String,
+    ) -> Result<TorrentItem, Box<dyn Error + Send + Sync>> {
         let res = get_with_retry(&url, 1).await;
         if res.is_err() {
             return Err(format!("Failed to fetch the torrent file : {:?}", res).into());
@@ -74,13 +77,15 @@ pub async fn process_feed(
             let db_copy = db.clone();
             let filters = item.filters.clone();
             async move {
-                // Check if item is already on db
+                // TODO vaoid some fetch in new, add some cache or db check
                 let it = TorrentItem::new(
                     get_link(&it).to_string(),
                     it.title().unwrap_or_default().to_string(),
-                ).await;
+                )
+                .await;
                 if let Err(err) = it {
                     log::warn!("Failed to process item: {}", err);
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await; // sleep for 1 second, to avoid being blocked
                     return None;
                 }
                 let it = it.unwrap();
@@ -118,17 +123,23 @@ pub async fn process_feed(
         .collect::<Vec<_>>();
 
     let results: Vec<Option<TorrentItem>> = futures::future::join_all(tasks).await;
+    download_torrents(db, item, cfg, results).await
+}
+
+async fn download_torrents(
+    db: Arc<Db>,
+    item: RssList,
+    cfg: Config,
+    results: Vec<Option<TorrentItem>>,
+) -> Result<i32, Box<dyn Error + Send + Sync>> {
     log::info!("[{:?}] [{:?}] torrents found", item.title, results.len());
 
     // Creates a new connection
     let mut client = get_client(&cfg);
 
     let mut count = 0;
-    for result in results {
-        if result.is_none() {
-            continue;
-        }
-        let result = result.unwrap();
+    for result in results.iter().filter(|it| it.is_some()) {
+        let result = result.as_ref().unwrap();
         log::info!("Adding torrent: {}", result.title);
         // Add the torrent into transmission
         let add: TorrentAddArgs = TorrentAddArgs {
@@ -173,7 +184,6 @@ pub async fn process_feed(
             }
         }
     }
-
     // Persist changes on disk
     db.flush()?;
     log::info!("[{:?}] add【{:?}】 torrents", item.title, count);
@@ -247,7 +257,8 @@ mod test {
             "https://dl.dmhy.org/2022/08/17/d70db7716583224da1684de8fa324822461917aa.torrent"
                 .to_string(),
             "test".to_string(),
-        ).await
+        )
+        .await
         .unwrap();
 
         let add: TorrentAddArgs = TorrentAddArgs {
