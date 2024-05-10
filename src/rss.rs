@@ -85,7 +85,6 @@ pub async fn process_feed(
                 .await;
                 if let Err(err) = it {
                     log::warn!("Failed to process item: {}", err);
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await; // sleep for 1 second, to avoid being blocked
                     return None;
                 }
                 let it = it.unwrap();
@@ -122,7 +121,14 @@ pub async fn process_feed(
         })
         .collect::<Vec<_>>();
 
-    let results: Vec<Option<TorrentItem>> = futures::future::join_all(tasks).await;
+    // let results: Vec<Option<TorrentItem>> = futures::future::join_all(tasks).await;
+    let mut results = Vec::new();
+    for task in tasks {
+        let res = task.await;
+        if res.is_some() {
+            results.push(res);
+        }
+    }
     download_torrents(db, item, cfg, results).await
 }
 
