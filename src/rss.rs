@@ -73,7 +73,7 @@ pub async fn process_feed(
         .map(|it| {
             let db_copy = db.clone();
             let filters = item.filters.clone();
-            return async move {
+            async move {
                 // Check if item is already on db
                 let it = TorrentItem::new(
                     get_link(&it).to_string(),
@@ -113,7 +113,7 @@ pub async fn process_feed(
                 } else {
                     None
                 }
-            };
+            }
         })
         .collect::<Vec<_>>();
 
@@ -210,8 +210,6 @@ async fn get_metainfo(url: &str) -> Result<String, Box<dyn Error + Send + Sync>>
 
 #[cfg(test)]
 mod test {
-
-    use futures::TryFutureExt;
 
     use super::*;
 
