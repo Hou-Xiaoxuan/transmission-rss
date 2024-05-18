@@ -69,36 +69,3 @@ It's also possible to run the docker container directly or using `docker-compose
 ```
 $ docker run -v ./persistence:/persistence ghcr.io/herlon214/transmission-rss:v0.2.2 -- -c /persistence/config.toml
 ```
-
-### Kubernetes
-
-You can also use the helm chart in the `helm/` for deploying in your kubernetes cluster.
-Create your config map and update the `configMapName` when deploying the helm chart.
-
-ConfigMap example:
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-    name: transmission-rss-cm
-data:
-    config.toml: |
-        [persistence]
-        path = "/db"
-
-        [transmission]
-        url = "http://yourserver/transmission/rpc"
-        username = "username"
-        password = "password"
-
-        [notification.telegram]
-        bot_token = "123:token"
-        chat_id = 123123
-
-        [[rss_list]]
-        title = "My Item"
-        url = "https://rss.link/here"
-        filters = ["1080p"]
-        download_dir = "/path/to/store"
-```
