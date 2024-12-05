@@ -13,6 +13,10 @@ struct Args {
     /// Path to the config file
     #[clap(short, long)]
     config: String,
+
+    // Path to rss rules
+    #[clap(long)]
+    rules: Option<String>,
 }
 
 pub async fn init_db(cfg: &Config) -> Result<Arc<Db>, Box<dyn Error + Send + Sync>> {
@@ -58,10 +62,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     // Read initial config file
-    let file = match fs::read_to_string(&args.config) {
+    let mut file = match fs::read_to_string(&args.config) {
         Ok(val) => val,
         Err(err) => panic!("Failed to find file {:?}: {}", args.config, err),
     };
+
+    // append rules to config file
+    if let Some(rules) = args.rules {
+        let rules = match fs::read_to_string(&rules) {
+            Ok(val) => val,
+            Err(err) => panic!("Failed to find file {:?}: {}", rules, err),
+        };
+        file.push('\n');
+        file.push_str(&rules);
+    }
+
     let cfg: Config = toml::from_str(&file).unwrap();
     let db: Arc<Db> = init_db(&cfg).await.unwrap();
 
